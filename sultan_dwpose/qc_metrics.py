@@ -1,6 +1,6 @@
 """Pose-quality metrics per trial. Report-only: nothing here changes data fed to models.
 
-Works on any raw pose npz in Rhama's format (kps (T,K,3) pixels, valid, boxes), given the
+Works on any raw pose npz in the team's format (kps (T,K,3) pixels, valid, boxes), given the
 LB6 joint indices for that estimator, so the same QC can be run on YOLO / MediaPipe output.
 """
 import numpy as np

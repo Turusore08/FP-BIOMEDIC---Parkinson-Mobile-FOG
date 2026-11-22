@@ -1,4 +1,4 @@
-"""Generate MobileFOG_Sultan_DWPose_Extraction_QC.ipynb (self-contained Kaggle notebook).
+"""Generate MobileFOG_DWPose_Extraction_QC.ipynb (self-contained Kaggle notebook).
 
 Usage:  python sultan_dwpose/build_notebook.py
 Spec:   docs/superpowers/specs/2026-11-22-dwpose-extraction-qc-design.md
@@ -21,7 +21,7 @@ from sultan_dwpose.rhama_cells import (  # noqa: E402
 )
 
 RHAMA_NB = REPO / "parkinsonfp-biomed.ipynb"
-OUT_NB = REPO / "MobileFOG_Sultan_DWPose_Extraction_QC.ipynb"
+OUT_NB = REPO / "MobileFOG_DWPose_Extraction_QC.ipynb"
 DET_URL = "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip"
 POSE_URL = "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-ucoco_dw-ucoco_270e-256x192-c8b76419_20230728.zip"
 
@@ -57,22 +57,22 @@ def _code(text: str, verbatim: bool = False) -> dict:
 
 
 TITLE_MD = """
-# Mobile-FOG (Bagian Sultan): Ekstraksi `DWPose-m` + Preprocessing Scenario A / B / D + QC Pose
+# Mobile-FOG: Ekstraksi `DWPose-m` + Preprocessing Scenario A / B / D + QC Pose
 **Target Lingkungan:** Kaggle Notebook — **Accelerator: GPU T4 x2** (`2× NVIDIA T4`) & **Internet: ON**
 
-Notebook ini padanan `parkinsonfp-biomed.ipynb` milik Rhama, dengan estimator **DWPose-m** (133 keypoint COCO-WholeBody):
-1. **Ekstraksi pose paralel (`2× T4`)**: detektor YOLOX-m + **DWPose-m** (bukan RTMW), **setiap frame (30 fps)** & resolusi asli, ke `01_extracted_poses_raw/dwpose_m_sultan/`.
-2. **Preprocessing Scenario A / B / D**: kode **disalin persis** dari notebook Rhama (hanya nama folder `yolo26n_lb6_` → `dwpose_m_lb6_`), sehingga hasilnya bisa langsung dipakai `MobileFOG_Rhama_Training_4Models_Kaggle.ipynb` dengan mengganti `DATA_DIR`.
+Notebook ini padanan notebook ekstraksi YOLO tim (`parkinsonfp-biomed.ipynb`), dengan estimator **DWPose-m** (133 keypoint COCO-WholeBody):
+1. **Ekstraksi pose paralel (`2× T4`)**: detektor YOLOX-m + **DWPose-m** (bukan RTMW), **setiap frame (30 fps)** & resolusi asli, ke `01_extracted_poses_raw/dwpose_m/`.
+2. **Preprocessing Scenario A / B / D**: kode **disalin persis** dari notebook ekstraksi YOLO tim (hanya nama folder `yolo26n_lb6_` → `dwpose_m_lb6_`), sehingga hasilnya bisa langsung dipakai notebook training 4 model tim dengan mengganti `DATA_DIR`.
 3. **QC pose (hanya melapor, tidak mengubah data)**: metrik per trial (frame valid, confidence rendah, lonjakan, swap kiri-kanan, salah orang, kecocokan jumlah frame), plot sinyal, klip overlay 15 detik untuk dicek manual, dan lembar `qc_manual_review.csv`.
 
-Kode notebook ini dihasilkan oleh `sultan_dwpose/build_notebook.py` (modul + unit test ada di repo). Jangan edit sel kode Rhama di sini, ubah di sumbernya.
+Notebook ini dihasilkan oleh skrip builder di repo (modul + unit test). Jangan edit sel kode di sini secara langsung, ubah di sumbernya lalu generate ulang.
 """
 
 INSTALL = """
 # rtmlib mewajibkan paket 'onnxruntime' (CPU) yang bentrok dengan 'onnxruntime-gpu' -> pasang --no-deps
 !pip uninstall -y -q onnxruntime
 !pip install -q --no-deps rtmlib==0.0.16
-!pip install -q onnxruntime-gpu tqdm
+!pip install -q onnxruntime-gpu==1.32.0 tqdm  # versi teruji di Kaggle (CUDA 13, torch cu130)
 
 import os
 import sys
@@ -109,10 +109,10 @@ DATASET_ROOT = find_dataset_root([Path("/kaggle/input"), Path("dataset"), Path("
 if os.environ.get("MOBILEFOG_OUTPUT_ROOT"):
     OUTPUT_ROOT = Path(os.environ["MOBILEFOG_OUTPUT_ROOT"])
 elif Path("/kaggle/working").exists():
-    OUTPUT_ROOT = Path("/kaggle/working/mobilefog_sultan")
+    OUTPUT_ROOT = Path("/kaggle/working/mobilefog_dwpose")
 else:
-    OUTPUT_ROOT = Path("output/mobilefog_sultan")
-RAW_POSE_DIR = OUTPUT_ROOT / "01_extracted_poses_raw" / "dwpose_m_sultan"
+    OUTPUT_ROOT = Path("output/mobilefog_dwpose")
+RAW_POSE_DIR = OUTPUT_ROOT / "01_extracted_poses_raw" / "dwpose_m"
 QC_DIR = OUTPUT_ROOT / "03_qc"
 
 # ==============================================================================
@@ -128,7 +128,7 @@ MAX_FRAMES = None          # None = seluruh frame (hanya diubah untuk uji coba)
 BENCHMARK_FRAMES = 300     # jumlah frame untuk mengukur kecepatan sebelum ekstraksi penuh
 
 # ==============================================================================
-# KONSTANTA PREPROCESSING (disalin persis dari notebook Rhama, cell 2)
+# KONSTANTA PREPROCESSING (disalin persis dari notebook ekstraksi YOLO tim, cell 2)
 # ==============================================================================
 {constants}
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -163,7 +163,7 @@ with open(RAW_POSE_DIR.parent / "joint_schema.json", "w") as f:
 
 WORKER = """
 # ==============================================================================
-# TULIS SKRIP WORKER EKSTRAKSI (dijalankan 1 proses per GPU, pola notebook Rhama)
+# TULIS SKRIP WORKER EKSTRAKSI (dijalankan 1 proses per GPU, pola notebook ekstraksi YOLO tim)
 # ==============================================================================
 WORKER_SRC = r'''{worker}'''
 WORKER_PATH = OUTPUT_ROOT / "_dwpose_extract_worker.py"
@@ -238,25 +238,25 @@ missing = [f"{r.split}/{r.trial_id}" for r in df_manifest.itertuples()
 assert not missing, (f"{len(missing)} trial belum diekstraksi lengkap (mis. {missing[:3]}). Pastikan MAX_FRAMES = None, "
                      "ubah RUN_SPLITS ke split yang tersisa, lalu jalankan ulang notebook "
                      "(lampirkan output sesi sebelumnya sebagai Input).")
-print("Semua 71 trial sudah diekstraksi. Lanjut ke preprocessing (kode Rhama).")
+print("Semua 71 trial sudah diekstraksi. Lanjut ke preprocessing (kode notebook YOLO tim).")
 """
 
 PREPROC_MD = """
-## Preprocessing Scenario A / B / D (kode Rhama, disalin persis)
-Tiga sel berikut diambil otomatis dari `parkinsonfp-biomed.ipynb` (commit `aeb2126`). Satu-satunya perubahan:
-`yolo26n_lb6_` → `dwpose_m_lb6_` dan `mobilefog_rhama` → `mobilefog_sultan`. Jika menemukan bug di sini,
+## Preprocessing Scenario A / B / D (kode notebook YOLO tim, disalin persis)
+Tiga sel berikut diambil otomatis dari `parkinsonfp-biomed.ipynb` (commit `aeb2126`). Perubahan hanya:
+`yolo26n_lb6_` → `dwpose_m_lb6_`, nama folder output, dan satu komentar. Jika menemukan bug di sini,
 laporkan ke tim agar diperbaiki untuk semua estimator, jangan diubah sepihak.
 """
 
 WINDOW_CHECK = """
-# Pemeriksaan kewajaran: jumlah window DWPose vs YOLO Rhama (boleh beda sedikit; beda besar = ada masalah)
-RHAMA_WINDOWS = {"train": 5535, "val": 1169, "test": 1652}
+# Pemeriksaan kewajaran: jumlah window DWPose vs YOLO (boleh beda sedikit; beda besar = ada masalah)
+YOLO_WINDOWS = {"train": 5535, "val": 1169, "test": 1652}
 for src_scen in ["A_baseline_norm", "B_denoised_hampel_accel"]:
     for hz in (15, 30):
         d_root = SCEN_DIR / "D_windowed_stgcn_cls" / f"from_{src_scen}_{hz}hz"
         counts = {sp: int(np.load(d_root / f"{sp}.npz")["y_maj"].shape[0]) for sp in SPLITS}
-        diff = {sp: counts[sp] - RHAMA_WINDOWS[sp] for sp in SPLITS}
-        print(f"{src_scen} @ {hz}Hz: DWPose={counts} | selisih vs Rhama={diff}")
+        diff = {sp: counts[sp] - YOLO_WINDOWS[sp] for sp in SPLITS}
+        print(f"{src_scen} @ {hz}Hz: DWPose={counts} | selisih vs YOLO={diff}")
 """
 
 QC_MD = """
@@ -339,9 +339,9 @@ print(f"Plot & klip di-zip: {QC_DIR / 'signals.zip'}, {QC_DIR / 'clips.zip'} | t
 
 NEXT_MD = """
 ## Langkah berikutnya
-1. **Simpan output**: jalankan *Save Version → Save & Run All* agar `/kaggle/working/mobilefog_sultan` tersimpan, lalu jadikan output ini Kaggle Dataset untuk notebook training.
+1. **Simpan output**: jalankan *Save Version → Save & Run All* agar `/kaggle/working/mobilefog_dwpose` tersimpan, lalu jadikan output ini Kaggle Dataset untuk notebook training.
 2. **Cek manual QC**: unduh `03_qc/clips.zip`, `03_qc/signals.zip`, `03_qc/qc_per_trial.csv`, dan `03_qc/qc_manual_review.csv`. Tonton klip, isi CSV, lalu simpan CSV yang sudah diisi ke repo (`qc/qc_manual_review.csv`). Klip tidak di-commit.
-3. **Training**: di `MobileFOG_Rhama_Training_4Models_Kaggle.ipynb`, isi `DATA_DIR` secara manual ke folder `mobilefog_sultan` (auto-detect di sana mencari `mobilefog_rhama`).
+3. **Training**: di notebook training 4 model tim, isi `DATA_DIR` secara manual ke folder `mobilefog_dwpose` (auto-detect di sana mencari folder output YOLO).
 """
 
 

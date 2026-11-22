@@ -52,7 +52,7 @@ def test_guard_rejects_truncated_test_run(e2e):
 def test_full_run_reextracts_and_finishes(e2e):
     out, _, log2 = e2e
     assert "ALL CELLS OK" in log2, log2[-3000:]
-    raws = sorted((out / "01_extracted_poses_raw" / "dwpose_m_sultan").glob("*/*.npz"))
+    raws = sorted((out / "01_extracted_poses_raw" / "dwpose_m").glob("*/*.npz"))
     assert len(raws) == 71
     assert all(ew.is_complete(p) for p in raws)
     assert all(np.load(p)["kps"].shape[0] == N_FRAMES for p in raws)

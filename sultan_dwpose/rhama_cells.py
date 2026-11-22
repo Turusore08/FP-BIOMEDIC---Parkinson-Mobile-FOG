@@ -13,7 +13,9 @@ RHAMA_CELL_IDS = {"manifest": 3, "preprocess_fns": 5, "scenarios": 6, "smoke": 7
 
 REPLACEMENTS = {
     "yolo26n_lb6_": "dwpose_m_lb6_",
-    "mobilefog_rhama": "mobilefog_sultan",
+    "mobilefog_rhama": "mobilefog_dwpose",
+    # comment-only: the notebook must not mention team members by name
+    "default unggulan Rhama,": "default unggulan,",
 }
 
 CONSTANT_NAMES = [

@@ -38,7 +38,7 @@ def restore_previous_outputs(input_root, raw_dir):
     if not input_root.exists():
         return 0
     n = 0
-    for f in sorted(input_root.rglob("01_extracted_poses_raw/dwpose_m_sultan/*/*.npz")):
+    for f in sorted(input_root.rglob("01_extracted_poses_raw/dwpose_m/*/*.npz")):
         if f.name.endswith(".tmp.npz"):
             continue
         dst = raw_dir / f.parent.name / f.name

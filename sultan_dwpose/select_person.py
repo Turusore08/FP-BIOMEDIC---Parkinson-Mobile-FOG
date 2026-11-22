@@ -1,6 +1,6 @@
-"""Per-frame patient selection, mirroring Rhama's `_select_main_person` (YOLO notebook).
+"""Per-frame patient selection, mirroring `_select_main_person` of the team's YOLO notebook.
 
-Rhama: score = box_area * det_conf * (1 - 0.3*|cx - W/2| / (W/2)), argmax, no tracking.
+YOLO notebook: score = box_area * det_conf * (1 - 0.3*|cx - W/2| / (W/2)), argmax, no tracking.
 rtmlib's YOLOX returns no detection score, so det_conf is replaced by the mean score
 of the 17 COCO body keypoints (indices 0..16) of each person.
 """

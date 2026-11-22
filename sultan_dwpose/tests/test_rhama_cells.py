@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from sultan_dwpose.rhama_cells import (
+    REPLACEMENTS,
     RHAMA_CELL_IDS,
     load_rhama_cells,
     rhama_constants_block,
@@ -30,12 +31,12 @@ def test_transform_counts():
     cells = _cells()
     src6, n6 = transform_rhama_source(cells[RHAMA_CELL_IDS["scenarios"]])
     src7, n7 = transform_rhama_source(cells[RHAMA_CELL_IDS["smoke"]])
-    assert n6 == {"yolo26n_lb6_": 3, "mobilefog_rhama": 0}
-    assert n7 == {"yolo26n_lb6_": 0, "mobilefog_rhama": 1}
-    assert "yolo26n" not in src6
-    assert "yolo26n" not in src7
+    assert n6 == {"yolo26n_lb6_": 3, "mobilefog_rhama": 0, "default unggulan Rhama,": 1}
+    assert n7 == {"yolo26n_lb6_": 0, "mobilefog_rhama": 1, "default unggulan Rhama,": 0}
+    assert "yolo26n" not in src6 and "Rhama" not in src6
+    assert "yolo26n" not in src7 and "rhama" not in src7.lower()
     assert "dwpose_m_lb6_" in src6
-    assert "mobilefog_sultan" in src7
+    assert "mobilefog_dwpose" in src7
 
 
 def test_transform_is_minimal():
@@ -43,10 +44,15 @@ def test_transform_is_minimal():
     new, _ = transform_rhama_source(orig)
     removed = [l[2:] for l in difflib.ndiff(orig.splitlines(), new.splitlines()) if l.startswith("- ")]
     added = [l[2:] for l in difflib.ndiff(orig.splitlines(), new.splitlines()) if l.startswith("+ ")]
-    assert len(removed) == len(added) == 3
+    assert len(removed) == len(added) == 4
     for r, a in zip(removed, added):
-        assert "yolo26n_lb6_" in r
-        assert r.replace("yolo26n_lb6_", "dwpose_m_lb6_") == a
+        expected = r
+        for old, new in REPLACEMENTS.items():
+            expected = expected.replace(old, new)
+        assert expected == a and expected != r
+    # the only non-path change is inside a comment line
+    comment_changes = [r for r in removed if "yolo26n_lb6_" not in r]
+    assert len(comment_changes) == 1 and comment_changes[0].lstrip().startswith("#")
 
 
 def test_constants_values():

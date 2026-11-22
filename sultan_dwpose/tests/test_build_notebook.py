@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -33,7 +34,7 @@ def test_find_dataset_root(tmp_path):
 
 
 def test_restore_previous_outputs(tmp_path):
-    src = tmp_path / "input" / "x" / "01_extracted_poses_raw" / "dwpose_m_sultan" / "train"
+    src = tmp_path / "input" / "x" / "01_extracted_poses_raw" / "dwpose_m" / "train"
     src.mkdir(parents=True)
     for t in ("PDFE02_1", "PDFE03_1"):
         np.savez(src / f"{t}.npz", a=np.arange(2))
@@ -99,6 +100,19 @@ def test_notebook_structure(nb):
         assert transform_rhama_source(cells[RHAMA_CELL_IDS[key]])[0] in code
 
 
+NAMES = re.compile(r"(?<![a-z])(rhama|sultan|faiz|panji|arya|hamdi|jailani|daulay|hizbullah)(?![a-z])", re.I)
+
+
+def test_notebook_has_no_personal_names(nb):
+    hits = [ln.strip() for c in nb["cells"] for ln in "".join(c["source"]).splitlines() if NAMES.search(ln)]
+    assert hits == []
+    assert not NAMES.search(bn.OUT_NB.name)
+
+
+def test_onnxruntime_gpu_pinned(nb):
+    assert "onnxruntime-gpu==1.32.0" in "\n".join(_code(nb))
+
+
 def test_inlined_sources_are_not_altered(tmp_path, monkeypatch):
     monkeypatch.setattr(bn, "worker_source", lambda: "s = '{{x}}'\n")
     monkeypatch.setattr(bn, "helpers_source", lambda: "h = '{{y}}'\n")
@@ -143,4 +157,4 @@ def test_config_and_manifest_cells_run_locally(nb, tmp_path, monkeypatch):
     exec(manifest_cell, ns)
     assert len(ns["df_manifest"]) == 71
     assert (tmp_path / "out" / "manifest_trials_local.csv").exists()
-    assert ns["RAW_POSE_DIR"] == tmp_path / "out" / "01_extracted_poses_raw" / "dwpose_m_sultan"
+    assert ns["RAW_POSE_DIR"] == tmp_path / "out" / "01_extracted_poses_raw" / "dwpose_m"

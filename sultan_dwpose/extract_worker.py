@@ -1,4 +1,4 @@
-"""DWPose-m extraction worker (one process per GPU), modelled on Rhama's `_yolo_extract_worker.py`.
+"""DWPose-m extraction worker (one process per GPU), modelled on the team YOLO notebook's `_yolo_extract_worker.py`.
 
 Run as:  python _dwpose_extract_worker.py job.json
 job = {"gpu_label": int,
