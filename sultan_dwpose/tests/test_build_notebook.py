@@ -10,9 +10,10 @@ import pytest
 
 from sultan_dwpose import build_notebook as bn
 from sultan_dwpose import extract_worker as ew
-from sultan_dwpose.nb_helpers import eta_hours, find_dataset_root, require_cuda_provider, restore_previous_outputs
+from sultan_dwpose.nb_helpers import (eta_hours, find_bbox_root, find_dataset_root, require_cuda_provider,
+                                      restore_previous_outputs)
 from sultan_dwpose.rhama_cells import RHAMA_CELL_IDS, load_rhama_cells, transform_rhama_source
-from sultan_dwpose.tests.test_extract_worker import _fake_models, _make_video
+from sultan_dwpose.tests.test_extract_worker import CFG, FakeModels, _make_bbox, _make_video
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -31,6 +32,15 @@ def test_find_dataset_root(tmp_path):
     assert find_dataset_root([tmp_path / "missing", tmp_path]) == root
     with pytest.raises(FileNotFoundError):
         find_dataset_root([tmp_path / "missing"])
+
+
+def test_find_bbox_root(tmp_path):
+    root = tmp_path / "input" / "mobile-fog-patient-bboxes"
+    for sp in ("train", "val", "test"):
+        (root / "patient_bboxes_npz" / sp).mkdir(parents=True)
+    assert find_bbox_root([tmp_path / "missing", tmp_path / "input"]) == root
+    with pytest.raises(FileNotFoundError, match="mobile-fog-patient-bboxes"):
+        find_bbox_root([tmp_path / "missing"])
 
 
 def test_restore_previous_outputs(tmp_path):
@@ -98,6 +108,12 @@ def test_notebook_structure(nb):
     cells = load_rhama_cells(REPO / "parkinsonfp-biomed.ipynb")
     for key in ("manifest", "preprocess_fns", "scenarios", "smoke"):
         assert transform_rhama_source(cells[RHAMA_CELL_IDS[key]])[0] in code
+    assert "BBOX_ROOT = find_bbox_root" in joined
+    assert '"bbox_npz_path": r.bbox_npz_path' in joined
+    for k in ("crop_pad_ratio", "mask_supervisors", "min_crop_iou", "det_conf"):
+        assert f'"{k}"' in joined, k
+    assert "mobilefog_dwpose_patientlock" in joined
+    assert "select_main_person" not in joined and "body17" not in joined
 
 
 NAMES = re.compile(r"(?<![a-z])(rhama|sultan|faiz|panji|arya|hamdi|jailani|daulay|hizbullah)(?![a-z])", re.I)
@@ -130,8 +146,11 @@ def test_inlined_worker_runs_standalone(tmp_path):
     ns = {"__name__": "dwpose_worker"}
     exec(compile(src, "worker", "exec"), ns)
     vp = _make_video(tmp_path / "v.mp4")
-    out = ns["extract_video"](str(vp), *_fake_models())
-    assert out["kps"].shape == (12, 133, 3)
+    bp = _make_bbox(tmp_path / "b.npz")
+    m = FakeModels()
+    out = ns["extract_video"](str(vp), str(bp), m.det_fn, m.pose_fn, **CFG)
+    assert out["kps"].shape == (12, 133, 3) and out["valid"].all()
+    assert str(out["selector"]) == "patientlock-2pass"
 
 
 def test_inlined_qc_runs_standalone(tmp_path):
@@ -148,6 +167,12 @@ def test_config_and_manifest_cells_run_locally(nb, tmp_path, monkeypatch):
     """Cells 1(helpers part)+2+3 locally: finds dataset/, audits 71 trials, writes manifest."""
     monkeypatch.chdir(REPO)
     monkeypatch.setenv("MOBILEFOG_OUTPUT_ROOT", str(tmp_path / "out"))
+    bb = tmp_path / "bboxes"
+    for vp in (REPO / "dataset").glob("*/videos/*.mp4"):
+        d = bb / "patient_bboxes_npz" / vp.parent.parent.name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{vp.stem}.npz").write_bytes(b"")
+    monkeypatch.setenv("MOBILEFOG_BBOX_ROOT", str(bb))
     ns = {"__name__": "__main__"}
     exec("from pathlib import Path\nimport os, json\nimport numpy as np\nimport pandas as pd\n", ns)
     exec(bn.helpers_source(), ns)
@@ -158,3 +183,5 @@ def test_config_and_manifest_cells_run_locally(nb, tmp_path, monkeypatch):
     assert len(ns["df_manifest"]) == 71
     assert (tmp_path / "out" / "manifest_trials_local.csv").exists()
     assert ns["RAW_POSE_DIR"] == tmp_path / "out" / "01_extracted_poses_raw" / "dwpose_m"
+    assert ns["BBOX_ROOT"] == bb
+    assert all(Path(p).exists() for p in ns["df_manifest"]["bbox_npz_path"])

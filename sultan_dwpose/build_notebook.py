@@ -39,7 +39,7 @@ def helpers_source() -> str:
 
 
 def worker_source() -> str:
-    return _strip_inline(_read("select_person.py")) + "\n\n" + _strip_inline(_read("extract_worker.py"))
+    return _strip_inline(_read("patient_lock.py")) + "\n\n" + _strip_inline(_read("extract_worker.py"))
 
 
 def qc_source() -> str:
@@ -57,11 +57,11 @@ def _code(text: str, verbatim: bool = False) -> dict:
 
 
 TITLE_MD = """
-# Mobile-FOG: Ekstraksi `DWPose-m` + Preprocessing Scenario A / B / D + QC Pose
+# Mobile-FOG: Ekstraksi `DWPose-m` + `PatientLock-2Pass` & Preprocessing Scenario A / B / D + QC Pose
 **Target Lingkungan:** Kaggle Notebook — **Accelerator: GPU T4 x2** (`2× NVIDIA T4`) & **Internet: ON**
 
 Notebook ini padanan notebook ekstraksi YOLO tim (`parkinsonfp-biomed.ipynb`), dengan estimator **DWPose-m** (133 keypoint COCO-WholeBody):
-1. **Ekstraksi pose paralel (`2× T4`)**: detektor YOLOX-m + **DWPose-m** (bukan RTMW), **setiap frame (30 fps)** & resolusi asli, ke `01_extracted_poses_raw/dwpose_m/`.
+1. **Isolasi pasien (PatientLock-2Pass) + ekstraksi pose paralel (`2× T4`)**: memakai bounding box pasien dari dataset Kaggle `ajikajadeh/mobile-fog-patient-bboxes`, sama dengan notebook ekstraksi YOLO tim. Per frame: *crop* mengikuti box pasien + *padding* 15%, area pengawas ditutup abu (inti pasien dipertahankan), detektor YOLOX-m di dalam crop, deteksi dengan IoU terbesar terhadap box pasien (≥ `MIN_CROP_IOU`), lalu **DWPose-m** (bukan RTMW) hanya pada box itu, dan koordinat di-remap ke frame asli. **Setiap frame (30 fps)** disimpan ke `01_extracted_poses_raw/dwpose_m/`.
 2. **Preprocessing Scenario A / B / D**: kode **disalin persis** dari notebook ekstraksi YOLO tim (hanya nama folder `yolo26n_lb6_` → `dwpose_m_lb6_`), sehingga hasilnya bisa langsung dipakai notebook training 4 model tim dengan mengganti `DATA_DIR`.
 3. **QC pose (hanya melapor, tidak mengubah data)**: metrik per trial (frame valid, confidence rendah, lonjakan, swap kiri-kanan, salah orang, kecocokan jumlah frame), plot sinyal, klip overlay 15 detik untuk dicek manual, dan lembar `qc_manual_review.csv`.
 
@@ -106,12 +106,17 @@ CONFIG = """
 # PATH (auto-detect; bisa juga dijalankan lokal dari root repo)
 # ==============================================================================
 DATASET_ROOT = find_dataset_root([Path("/kaggle/input"), Path("dataset"), Path("Data/Train Val Test")])
+# Dataset Kaggle 'ajikajadeh/mobile-fog-patient-bboxes' (berisi patient_bboxes_npz/{{train,val,test}}/)
+if os.environ.get("MOBILEFOG_BBOX_ROOT"):
+    BBOX_ROOT = Path(os.environ["MOBILEFOG_BBOX_ROOT"])
+else:
+    BBOX_ROOT = find_bbox_root([Path("/kaggle/input"), Path("Data")])
 if os.environ.get("MOBILEFOG_OUTPUT_ROOT"):
     OUTPUT_ROOT = Path(os.environ["MOBILEFOG_OUTPUT_ROOT"])
 elif Path("/kaggle/working").exists():
-    OUTPUT_ROOT = Path("/kaggle/working/mobilefog_dwpose")
+    OUTPUT_ROOT = Path("/kaggle/working/mobilefog_dwpose_patientlock")
 else:
-    OUTPUT_ROOT = Path("output/mobilefog_dwpose")
+    OUTPUT_ROOT = Path("output/mobilefog_dwpose_patientlock")
 RAW_POSE_DIR = OUTPUT_ROOT / "01_extracted_poses_raw" / "dwpose_m"
 QC_DIR = OUTPUT_ROOT / "03_qc"
 
@@ -128,11 +133,12 @@ MAX_FRAMES = None          # None = seluruh frame (hanya diubah untuk uji coba)
 BENCHMARK_FRAMES = 300     # jumlah frame untuk mengukur kecepatan sebelum ekstraksi penuh
 
 # ==============================================================================
-# KONSTANTA PREPROCESSING (disalin persis dari notebook ekstraksi YOLO tim, cell 2)
+# KONSTANTA PATIENTLOCK & PREPROCESSING (disalin persis dari notebook ekstraksi YOLO tim, cell 2)
 # ==============================================================================
 {constants}
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 print(f"DATASET_ROOT : {{DATASET_ROOT}}")
+print(f"BBOX_ROOT    : {{BBOX_ROOT}}")
 print(f"OUTPUT_ROOT  : {{OUTPUT_ROOT}}")
 """
 
@@ -155,7 +161,12 @@ joint_schema = {
     "lb6_indices": LB6_INDICES,
     "lb6_names": LB6_NAMES,
     "feet_indices": {"L_BigToe": 17, "L_SmallToe": 18, "L_Heel": 19, "R_BigToe": 20, "R_SmallToe": 21, "R_Heel": 22},
-    "person_selection": "argmax(area * mean_body17_score * (1 - 0.3*|cx-W/2|/(W/2))) per frame, tanpa tracking",
+    "patient_lock": "PatientLock-2Pass (ajikajadeh/mobile-fog-patient-bboxes)",
+    "crop_pad_ratio": CROP_PAD_RATIO,
+    "mask_supervisors": MASK_SUPERVISORS,
+    "min_crop_iou": MIN_CROP_IOU,
+    "det_conf": DET_CONF,
+    "boxes": "box pasien dari dataset bbox (piksel); kps nol + valid=False jika tidak ada box/match",
 }
 with open(RAW_POSE_DIR.parent / "joint_schema.json", "w") as f:
     json.dump(joint_schema, f, indent=2)
@@ -182,15 +193,16 @@ pending = [r for r in df_manifest.itertuples()
            if r.split in RUN_SPLITS and not wk["is_complete"](RAW_POSE_DIR / r.split / f"{r.trial_id}.npz")]
 n_gpus = max(1, torch.cuda.device_count())
 if pending:
-    det_fn, pose_fn = wk["build_models"](DET_URL, POSE_URL, "cuda")
+    det_fn, pose_fn = wk["build_models"](DET_URL, POSE_URL, "cuda", DET_CONF)
     wk["check_providers"](det_fn.providers, "cuda")
     wk["check_providers"](pose_fn.providers, "cuda")
-    bench = wk["extract_video"](pending[0].video_path, det_fn, pose_fn, max_frames=BENCHMARK_FRAMES)
+    bench = wk["extract_video"](pending[0].video_path, pending[0].bbox_npz_path, det_fn, pose_fn,
+                                CROP_PAD_RATIO, MASK_SUPERVISORS, MIN_CROP_IOU, max_frames=BENCHMARK_FRAMES)
     ms = float(bench["ms_per_frame"])
     total_frames = sum(int(cv2.VideoCapture(r.video_path).get(cv2.CAP_PROP_FRAME_COUNT)) for r in pending)
     eta = eta_hours(ms, total_frames, n_gpus)
     print(f"Benchmark {pending[0].trial_id}: {ms:.1f} ms/frame | valid={bench['valid'].mean()*100:.1f}% | "
-          f"orang/frame rata-rata={bench['n_persons'].mean():.2f}")
+          f"deteksi dalam crop/frame={bench['n_persons'].mean():.2f}")
     print(f"{len(pending)} trial tersisa, {total_frames} frame, {n_gpus} GPU -> estimasi {eta:.2f} jam")
     if eta > 9:
         print("PERINGATAN: estimasi > 9 jam (batas sesi Kaggle ~12 jam). Ubah RUN_SPLITS di sel konfigurasi "
@@ -202,12 +214,13 @@ else:
 
 LAUNCH = """
 # ==============================================================================
-# TAHAP 1: EKSTRAKSI DWPose-m PARALEL PADA 2x T4 GPU (SUBPROCESS ISOLATED)
+# TAHAP 1: EKSTRAKSI DWPose-m + PATIENTLOCK-2PASS PARALEL PADA 2x T4 GPU (SUBPROCESS ISOLATED)
 # ==============================================================================
-tasks_list = [{"split": r.split, "trial_id": r.trial_id, "video_path": r.video_path}
+tasks_list = [{"split": r.split, "trial_id": r.trial_id, "video_path": r.video_path, "bbox_npz_path": r.bbox_npz_path}
               for r in df_manifest.itertuples() if r.split in RUN_SPLITS]
 cfg_dict = {"out_dir": str(RAW_POSE_DIR), "det_url": DET_URL, "pose_url": POSE_URL,
-            "max_frames": MAX_FRAMES, "device": "cuda"}
+            "max_frames": MAX_FRAMES, "device": "cuda", "det_conf": DET_CONF,
+            "crop_pad_ratio": CROP_PAD_RATIO, "mask_supervisors": MASK_SUPERVISORS, "min_crop_iou": MIN_CROP_IOU}
 
 t0 = time.time()
 shards = [tasks_list[i::n_gpus] for i in range(n_gpus)]
@@ -232,7 +245,7 @@ print(f"Ekstraksi {len(tasks_list)} video selesai dalam {time.time() - t0:.1f} d
 
 GUARD = """
 # Preprocessing butuh SEMUA 71 trial LENGKAP (scaler di-fit pada seluruh train).
-# File hasil uji coba MAX_FRAMES / terpotong / rusak tidak dihitung selesai.
+# File hasil uji coba MAX_FRAMES / terpotong / rusak / tanpa PatientLock tidak dihitung selesai.
 missing = [f"{r.split}/{r.trial_id}" for r in df_manifest.itertuples()
            if not wk["is_complete"](RAW_POSE_DIR / r.split / f"{r.trial_id}.npz")]
 assert not missing, (f"{len(missing)} trial belum diekstraksi lengkap (mis. {missing[:3]}). Pastikan MAX_FRAMES = None, "
@@ -243,7 +256,7 @@ print("Semua 71 trial sudah diekstraksi. Lanjut ke preprocessing (kode notebook 
 
 PREPROC_MD = """
 ## Preprocessing Scenario A / B / D (kode notebook YOLO tim, disalin persis)
-Tiga sel berikut diambil otomatis dari `parkinsonfp-biomed.ipynb` (commit `aeb2126`). Perubahan hanya:
+Tiga sel berikut diambil otomatis dari `parkinsonfp-biomed.ipynb` (versi PatientLock). Perubahan hanya:
 `yolo26n_lb6_` → `dwpose_m_lb6_`, nama folder output, dan satu komentar. Jika menemukan bug di sini,
 laporkan ke tim agar diperbaiki untuk semua estimator, jangan diubah sepihak.
 """
@@ -339,9 +352,9 @@ print(f"Plot & klip di-zip: {QC_DIR / 'signals.zip'}, {QC_DIR / 'clips.zip'} | t
 
 NEXT_MD = """
 ## Langkah berikutnya
-1. **Simpan output**: jalankan *Save Version → Save & Run All* agar `/kaggle/working/mobilefog_dwpose` tersimpan, lalu jadikan output ini Kaggle Dataset untuk notebook training.
+1. **Simpan output**: jalankan *Save Version → Save & Run All* agar `/kaggle/working/mobilefog_dwpose_patientlock` tersimpan, lalu jadikan output ini Kaggle Dataset untuk notebook training.
 2. **Cek manual QC**: unduh `03_qc/clips.zip`, `03_qc/signals.zip`, `03_qc/qc_per_trial.csv`, dan `03_qc/qc_manual_review.csv`. Tonton klip, isi CSV, lalu simpan CSV yang sudah diisi ke repo (`qc/qc_manual_review.csv`). Klip tidak di-commit.
-3. **Training**: di notebook training 4 model tim, isi `DATA_DIR` secara manual ke folder `mobilefog_dwpose` (auto-detect di sana mencari folder output YOLO).
+3. **Training**: di notebook training 4 model tim, isi `DATA_DIR` ke folder `mobilefog_dwpose_patientlock` (auto-detect di sana mengambil folder `D_windowed_stgcn_cls` pertama yang ditemukan, jadi isi manual bila ada lebih dari satu dataset di Input).
 """
 
 

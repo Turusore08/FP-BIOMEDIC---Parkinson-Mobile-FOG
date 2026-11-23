@@ -13,12 +13,13 @@ RHAMA_CELL_IDS = {"manifest": 3, "preprocess_fns": 5, "scenarios": 6, "smoke": 7
 
 REPLACEMENTS = {
     "yolo26n_lb6_": "dwpose_m_lb6_",
-    "mobilefog_rhama": "mobilefog_dwpose",
+    "mobilefog_rhama": "mobilefog_dwpose_patientlock",
     # comment-only: the notebook must not mention team members by name
     "default unggulan Rhama,": "default unggulan,",
 }
 
 CONSTANT_NAMES = [
+    "DET_CONF", "CROP_PAD_RATIO", "MASK_SUPERVISORS", "MIN_CROP_IOU",
     "LB6_INDICES", "LB6_NAMES", "CONF_VALID_THRES", "HAMPEL_WINDOW", "HAMPEL_SIGMA",
     "BUTTER_CUTOFF_HZ", "WINDOW_SEC", "STRIDE_SEC", "RANDOM_SEED",
 ]

@@ -34,3 +34,21 @@ def make_dataset(real_root: Path, out_root: Path) -> int:
                       "inside_imu_mask": mask[::2][:h]}).to_csv(out_root / split / "labels_15hz" / f"{tid}.csv", index=False)
         n_tr += 1
     return n_tr
+
+
+def make_bboxes(real_root: Path, bbox_root: Path) -> int:
+    """patient_bboxes_npz/{split}/{tid}.npz like ajikajadeh/mobile-fog-patient-bboxes: central patient box,
+    one supervisor box per frame (CSR layout), and a 40-frame gap with no patient box."""
+    n = 0
+    for vp in sorted(Path(real_root).glob("*/videos/*.mp4")):
+        d = bbox_root / "patient_bboxes_npz" / vp.parent.parent.name
+        d.mkdir(parents=True, exist_ok=True)
+        pb = np.tile(np.array([0.35, 0.05, 0.65, 0.95], np.float32), (N_FRAMES, 1))
+        det = np.ones(N_FRAMES, bool)
+        det[400:440] = False
+        flat = np.tile(np.array([[0.0, 0.0, 0.25, 1.0, 0.8]], np.float32), (N_FRAMES, 1))
+        offs = np.arange(N_FRAMES + 1)
+        np.savez(d / f"{vp.stem}.npz", patient_box_norm=pb, is_detected=det,
+                 non_patient_flat=flat, non_patient_offsets=offs)
+        n += 1
+    return n

@@ -13,7 +13,7 @@ import pytest
 
 from sultan_dwpose import build_notebook as bn
 from sultan_dwpose import extract_worker as ew
-from sultan_dwpose.tests.e2e.make_dataset import N_FRAMES, make_dataset
+from sultan_dwpose.tests.e2e.make_dataset import N_FRAMES, make_bboxes, make_dataset
 
 REPO = Path(__file__).resolve().parents[2]
 E2E = Path(__file__).resolve().parent / "e2e"
@@ -35,6 +35,7 @@ def _run(nb, cwd, out, max_frames=None):
 def e2e(tmp_path_factory):
     root = tmp_path_factory.mktemp("e2e")
     assert make_dataset(REPO / "dataset", root / "dataset") == 71
+    assert make_bboxes(REPO / "dataset", root / "Data" / "mobile-fog-patient-bboxes") == 71
     nb = root / "nb.ipynb"
     bn.build(nb)
     out = root / "out"
@@ -56,6 +57,10 @@ def test_full_run_reextracts_and_finishes(e2e):
     assert len(raws) == 71
     assert all(ew.is_complete(p) for p in raws)
     assert all(np.load(p)["kps"].shape[0] == N_FRAMES for p in raws)
+    z = np.load(raws[0])
+    assert str(z["selector"]) == "patientlock-2pass"
+    assert not z["valid"][400:440].any()                     # bbox gap -> invalid
+    assert 0.80 < z["valid"].mean() < 0.95                   # + every 9th detector call has no match
     d = np.load(out / "02_processed_scenarios" / "D_windowed_stgcn_cls" / "from_B_denoised_hampel_accel_15hz" / "train.npz")
     assert d["X"].shape[0] >= 47 * 15
 

@@ -1,11 +1,13 @@
-"""DWPose-m extraction worker (one process per GPU), modelled on the team YOLO notebook's `_yolo_extract_worker.py`.
+"""DWPose-m + PatientLock-2Pass extraction worker (one process per GPU).
+
+Mirrors the team YOLO extraction notebook's `_yolo_patientlock_worker.py`, with YOLO26n-pose replaced by
+rtmlib YOLOX-m (detector, run inside the patient crop) + DWPose-m (top-down pose on the matched box only).
 
 Run as:  python _dwpose_extract_worker.py job.json
 job = {"gpu_label": int,
-       "cfg": {"out_dir": str, "det_url": str, "pose_url": str, "max_frames": int | None},
-       "tasks": [{"split": str, "trial_id": str, "video_path": str}, ...]}
-
-Every frame (stride 1) at native resolution. Keypoints are saved in pixel coordinates.
+       "cfg": {"out_dir", "det_url", "pose_url", "max_frames", "device", "det_conf",
+               "crop_pad_ratio", "mask_supervisors", "min_crop_iou"},
+       "tasks": [{"split", "trial_id", "video_path", "bbox_npz_path"}, ...]}
 """
 import json
 import os
@@ -16,14 +18,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from sultan_dwpose.select_person import select_main_person  # inline-strip
+from sultan_dwpose.patient_lock import _crop_and_mask_patient, frame_supervisor_boxes, pick_box_in_crop  # inline-strip
 
 DET_INPUT_SIZE = (640, 640)
 POSE_INPUT_SIZE = (192, 256)
+SELECTOR = "patientlock-2pass"
 
 
-def build_models(det_url, pose_url, device):
-    """rtmlib YOLOX-m (HumanArt) detector + DWPose-m pose model (not rtmlib's Wholebody class = RTMW)."""
+def build_models(det_url, pose_url, device, det_conf=0.20):
+    """det_fn(img) -> (boxes (N,4) xyxy, scores (N,)) with the team's DET_CONF; pose_fn(img, boxes) -> (kps, scores).
+    rtmlib's YOLOX hard-codes score > 0.3 for this NMS-in-graph model, so scores are read from the ONNX output."""
     if str(device).startswith("cuda"):
         # Same as the notebook's main process: torch loads the pip CUDA/cuDNN libs, preload_dlls
         # lets onnxruntime-gpu find them. Without this a worker subprocess can fall back to CPU.
@@ -40,11 +44,17 @@ def build_models(det_url, pose_url, device):
     pose = RTMPose(pose_url, model_input_size=POSE_INPUT_SIZE, to_openpose=False,
                    backend="onnxruntime", device=device)
 
-    def det_fn(frame):
-        return det(frame)
+    def det_fn(img):
+        x, ratio = det.preprocess(img)
+        out = np.asarray(det.inference(x)[0])
+        if out.shape[-1] != 5:
+            raise RuntimeError(f"Unexpected YOLOX output shape {out.shape} (expected NMS-in-graph, last dim 5)")
+        boxes, scores = out[0, :, :4] / ratio, out[0, :, 4]
+        keep = scores > det_conf
+        return boxes[keep].astype(np.float32), scores[keep].astype(np.float32)
 
-    def pose_fn(frame, boxes):
-        return pose(frame, bboxes=boxes)
+    def pose_fn(img, boxes):
+        return pose(img, bboxes=boxes)
 
     det_fn.providers = list(det.session.get_providers())
     pose_fn.providers = list(pose.session.get_providers())
@@ -58,7 +68,13 @@ def check_providers(providers, device):
                            "Cek instalasi onnxruntime-gpu / CUDA / cuDNN.")
 
 
-def extract_video(video_path, det_fn, pose_fn, max_frames=None):
+def extract_video(video_path, bbox_npz_path, det_fn, pose_fn, crop_pad_ratio, mask_supervisors, min_crop_iou,
+                  max_frames=None):
+    bb = np.load(bbox_npz_path)
+    pboxes_norm, is_det = bb["patient_box_norm"], bb["is_detected"]
+    non_pat_flat, non_pat_off = bb["non_patient_flat"], bb["non_patient_offsets"]
+    n_bb = len(pboxes_norm)
+
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
@@ -69,21 +85,32 @@ def extract_video(video_path, det_fn, pose_fn, max_frames=None):
 
     all_kps, all_boxes, all_valid, all_n = [], [], [], []
     t0 = time.perf_counter()
-    while max_frames is None or len(all_kps) < max_frames:
+    f = 0
+    while max_frames is None or f < max_frames:
         ok, frame = cap.read()
         if not ok:
             break
-        boxes = np.asarray(det_fn(frame), np.float32).reshape(-1, 4)
-        if len(boxes):
-            # rtmlib RTMPose treats an empty bbox list as "whole image", so only call it with boxes
-            kps, scores = pose_fn(frame, boxes)
-        else:
-            kps, scores = np.zeros((0, 133, 2), np.float32), np.zeros((0, 133), np.float32)
-        kp, box, valid, n = select_main_person(boxes, kps, scores, W, H)
+        kp, box, valid, n = np.zeros((133, 3), np.float32), np.zeros(4, np.float32), False, 0
+        if f < n_bb and bool(is_det[f]):
+            sup_b = frame_supervisor_boxes(non_pat_flat, non_pat_off, f)
+            crop, off_xy, core_box, pbox_px = _crop_and_mask_patient(
+                frame, pboxes_norm[f], sup_b, crop_pad_ratio, mask_supervisors)
+            box = pbox_px.astype(np.float32)
+            boxes, _scores = det_fn(crop)
+            boxes = np.asarray(boxes, np.float32).reshape(-1, 4)
+            n = len(boxes)
+            idx = pick_box_in_crop(boxes, core_box, min_crop_iou)
+            if idx is not None:
+                kps, scores = pose_fn(crop, boxes[idx:idx + 1])
+                kp = np.concatenate([np.asarray(kps[0], np.float32), np.asarray(scores[0], np.float32)[:, None]], axis=-1)
+                kp[:, 0] += float(off_xy[0])
+                kp[:, 1] += float(off_xy[1])
+                valid = True
         all_kps.append(kp)
         all_boxes.append(box)
         all_valid.append(valid)
         all_n.append(n)
+        f += 1
     cap.release()
 
     n_frames = max(len(all_kps), 1)
@@ -98,15 +125,16 @@ def extract_video(video_path, det_fn, pose_fn, max_frames=None):
         "ms_per_frame": np.float32(1000.0 * (time.perf_counter() - t0) / n_frames),
         "max_frames": np.int32(-1 if max_frames is None else max_frames),
         "n_video": np.int32(n_video),
+        "selector": np.array(SELECTOR),
     }
 
 
 def is_complete(path):
-    """A raw npz counts as done only if it loads, came from a full run (max_frames=-1),
-    and covers the whole video (1 frame of decoder slack allowed)."""
+    """A raw npz counts as done only if it loads, was made with PatientLock (selector marker), came from a
+    full run (max_frames=-1), and covers the whole video (1 frame of decoder slack allowed)."""
     try:
         with np.load(path) as z:
-            if int(z["max_frames"]) != -1:
+            if str(z["selector"]) != SELECTOR or int(z["max_frames"]) != -1:
                 return False
             return len(z["valid"]) >= int(z["n_video"]) - 1 and z["kps"].shape[0] == len(z["valid"])
     except Exception:
@@ -131,14 +159,16 @@ def main(job_path):
         return
 
     device = cfg.get("device", "cuda")
-    det_fn, pose_fn = build_models(cfg["det_url"], cfg["pose_url"], device)
+    det_fn, pose_fn = build_models(cfg["det_url"], cfg["pose_url"], device, cfg.get("det_conf", 0.20))
     for fn in (det_fn, pose_fn):
         if hasattr(fn, "providers"):
             check_providers(fn.providers, device)
     for item in pending:
         save_path = out_dir / item["split"] / f"{item['trial_id']}.npz"
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        res = extract_video(item["video_path"], det_fn, pose_fn, cfg.get("max_frames"))
+        res = extract_video(item["video_path"], item["bbox_npz_path"], det_fn, pose_fn,
+                            cfg["crop_pad_ratio"], cfg["mask_supervisors"], cfg["min_crop_iou"],
+                            cfg.get("max_frames"))
         save_npz_atomic(save_path, res)
         print(f"[GPU {gpu_label}] Selesai {item['split']}/{item['trial_id']}: {len(res['valid'])} frame | "
               f"valid={res['valid'].mean() * 100:.2f}% | {float(res['ms_per_frame']):.1f} ms/frame", flush=True)

@@ -32,6 +32,23 @@ def find_dataset_root(candidates):
     )
 
 
+def find_bbox_root(candidates):
+    """Folder that contains patient_bboxes_npz/{train,test} (Kaggle dataset ajikajadeh/mobile-fog-patient-bboxes)."""
+    for cand in candidates:
+        cand = Path(cand)
+        if not cand.exists():
+            continue
+        for d, dirs, _ in os.walk(cand):
+            p = Path(d)
+            if p.name == "patient_bboxes_npz" and (p / "train").is_dir() and (p / "test").is_dir():
+                return p.parent
+            dirs[:] = sorted(x for x in dirs if x not in SKIP_WALK)
+    raise FileNotFoundError(
+        f"Folder 'patient_bboxes_npz' tidak ditemukan di: {[str(c) for c in candidates]}. "
+        "Tambahkan dataset Kaggle 'ajikajadeh/mobile-fog-patient-bboxes' ke Input notebook."
+    )
+
+
 def restore_previous_outputs(input_root, raw_dir):
     """Copy DWPose raw npz from an attached previous output into raw_dir (resume across sessions)."""
     input_root, raw_dir = Path(input_root), Path(raw_dir)

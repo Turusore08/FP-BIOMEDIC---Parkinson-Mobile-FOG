@@ -200,3 +200,29 @@ jadi `DATA_DIR` harus diisi manual.
 6. Jalan di Kaggle 2× T4 dengan pola paralel Rhama. Bila estimasi > 9 jam, dicicil per
    split dengan resume lintas sesi.
 7. Klip QC ditonton di laptop. Hanya CSV catatan cek manual yang masuk repo.
+
+## Addendum 2026-11-23 — PatientLock-2Pass (menggantikan §5.3 "Pemilihan pasien")
+
+**Alasan.** Run Kaggle pertama + uji lokal menunjukkan aturan `area × conf × center` tanpa tracking sering
+memilih asisten (DWPose/proxy body-17: 57 loncatan per 300 frame; pipeline YOLO tim: 17; ±41% frame salah
+orang di PDFE02_1 f0–1200). Tim sudah menyelesaikannya di notebook ekstraksi YOLO (`origin/main` `5296a14`,
+`ec495f8`) dengan **PatientLock-2Pass** + dataset Kaggle `ajikajadeh/mobile-fog-patient-bboxes`.
+Keputusan Sultan: **ikuti notebook ekstraksi YOLO tim, ganti estimatornya dengan DWPose.**
+
+**Desain (meniru sel 4 notebook YOLO tim):**
+- Input per trial: `patient_bboxes_npz/{split}/{trial}.npz` berisi `patient_box_norm (T,4)`, `is_detected (T,)`,
+  `non_patient_flat (N,≥4)`, `non_patient_offsets (T+1,)`.
+- Per frame: jika `f < T_bb` dan `is_detected[f]` → crop = box pasien + padding `CROP_PAD_RATIO` (0,15). Box
+  pengawas ditutup (114,114,114) kecuali area inti pasien (`MASK_SUPERVISORS`). Lalu detektor YOLOX-m
+  dijalankan di crop dengan ambang `DET_CONF` (0,20, skor dibaca langsung dari output ONNX karena rtmlib
+  mengunci 0,3). Box dengan IoU terbesar terhadap box inti dipilih; kalau IoU < `MIN_CROP_IOU` (0,20) →
+  frame invalid. DWPose-m dijalankan **hanya untuk box itu**, lalu keypoint di-remap ke frame penuh.
+- `boxes` yang disimpan = box pasien (piksel), sama dengan tim. Frame tanpa bbox atau tanpa match →
+  `kps` nol, `valid=False`. `n_persons` = jumlah deteksi di dalam crop (info QC).
+- Konstanta disalin persis dari sel 2 notebook YOLO tim (`DET_CONF`, `CROP_PAD_RATIO`, `MASK_SUPERVISORS`,
+  `MIN_CROP_IOU`, + konstanta preprocessing). Sel 3 (manifest + `bbox_npz_path`) disalin persis versi baru.
+- Pengganti det-conf body-17 (`select_person.py`) dihapus.
+- Npz menyimpan `selector="patientlock-2pass"`. `is_complete()` mewajibkannya, jadi output run pertama (tanpa
+  PatientLock) yang terlampir sebagai Input tidak akan dipakai ulang.
+- Output root: `mobilefog_dwpose_patientlock` (meniru `mobilefog_rhama_patientlock`). Pose mentah tetap di
+  `01_extracted_poses_raw/dwpose_m/`.

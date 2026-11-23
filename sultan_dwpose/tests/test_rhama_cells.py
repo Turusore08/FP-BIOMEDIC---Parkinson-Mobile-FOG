@@ -22,6 +22,7 @@ def _cells():
 def test_cell_ids_match_titles():
     cells = _cells()
     assert "trial_records" in cells[RHAMA_CELL_IDS["manifest"]]
+    assert "bbox_npz_path" in cells[RHAMA_CELL_IDS["manifest"]]  # PatientLock version of the team notebook
     assert "TAHAP 2: FUNGSI PREPROCESSING" in cells[RHAMA_CELL_IDS["preprocess_fns"]]
     assert "TAHAP 3: SIMPAN SCENARIO" in cells[RHAMA_CELL_IDS["scenarios"]]
     assert "TAHAP 4: SMOKE TEST" in cells[RHAMA_CELL_IDS["smoke"]]
@@ -33,6 +34,7 @@ def test_transform_counts():
     src7, n7 = transform_rhama_source(cells[RHAMA_CELL_IDS["smoke"]])
     assert n6 == {"yolo26n_lb6_": 3, "mobilefog_rhama": 0, "default unggulan Rhama,": 1}
     assert n7 == {"yolo26n_lb6_": 0, "mobilefog_rhama": 1, "default unggulan Rhama,": 0}
+    assert "mobilefog_dwpose_patientlock" in src7
     assert "yolo26n" not in src6 and "Rhama" not in src6
     assert "yolo26n" not in src7 and "rhama" not in src7.lower()
     assert "dwpose_m_lb6_" in src6
@@ -68,6 +70,8 @@ def test_constants_values():
     assert ns["WINDOW_SEC"] == 2.0
     assert ns["STRIDE_SEC"] == 1.0
     assert ns["RANDOM_SEED"] == 42
+    assert ns["DET_CONF"] == 0.20 and ns["CROP_PAD_RATIO"] == 0.15
+    assert ns["MASK_SUPERVISORS"] is True and ns["MIN_CROP_IOU"] == 0.20
     # nothing from the YOLO-specific config leaks in
     assert "YOLO_WEIGHTS" not in ns and "DATASET_ROOT" not in ns
 
