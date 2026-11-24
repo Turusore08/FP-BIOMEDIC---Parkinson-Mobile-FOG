@@ -16,6 +16,8 @@ TARGETS = [
     ("01_test_PDFE16_1_skeleton", "test", "PDFE16_1"),
     ("02_val_PDFE27_2_skeleton", "val", "PDFE27_2"),
     ("03_train_PDFE14_1_skeleton", "train", "PDFE14_1"),
+    ("05_train_PDFE15_1_skeleton", "train", "PDFE15_1"),
+    ("06_test_PDFE24_1_skeleton", "test", "PDFE24_1"),
 ]
 
 # COCO 17 skeleton connections
@@ -192,6 +194,11 @@ def render_one(out_stem: str, split: str, tid: str):
 
 
 if __name__ == "__main__":
-    for out_stem, split, tid in TARGETS:
+    import sys
+
+    # Optional filter: python render_pose_demo_videos.py PDFE15_1 [PDFE16_1 ...]
+    wanted = set(sys.argv[1:])
+    selected = [t for t in TARGETS if not wanted or t[2] in wanted]
+    for out_stem, split, tid in selected:
         render_one(out_stem, split, tid)
-    print("All 3 skeleton demo videos rendered successfully.")
+    print(f"{len(selected)} skeleton demo video(s) rendered successfully.")
