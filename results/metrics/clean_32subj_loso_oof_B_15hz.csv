@@ -1,0 +1,5 @@
+loso_scenario,model,folds,oof_roc_auc,oof_pr_auc,oof_f1_raw,oof_f1_pp,oof_sens_pp,oof_spec_pp,oof_bal_acc_pp,subj26_pr_auc_mean_std,subj35_spec_mean_std
+B_15hz,Light_ST-GCN,32,0.917,0.7284,0.6556,0.6711,0.6609,0.9296,0.7953,0.554 ± 0.331,0.861 ± 0.221
+B_15hz,Pure_Bi-Mamba,32,0.8072,0.6706,0.5919,0.6006,0.5215,0.951,0.7362,0.550 ± 0.310,0.916 ± 0.145
+B_15hz,Hybrid_GCN+BiMamba,32,0.7817,0.6021,0.5369,0.5502,0.5153,0.9184,0.7168,0.499 ± 0.342,0.891 ± 0.184
+B_15hz,LightGBM+FFT,32,0.8406,0.5357,0.7269,0.7515,0.6755,0.9722,0.8238,0.565 ± 0.354,0.919 ± 0.127

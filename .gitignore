@@ -1,8 +1,30 @@
-/output training/mobilefog_training_results/checkpoints/
-/Data/Train Val Test.zip
-/Data/Train Val Test/
-/output
-/demo_skeleton_videos/
-/Data
-/output bounding box
+# Python caches & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+
+# Raw datasets & heavy local artifacts
+/Data/
+/outputs/
+
+# Legacy artifact paths kept ignored for safety
+/output/
+/output training/
+/output bounding box/
 /output without noise/
+/output_dwpose/
+/demo_skeleton_videos/
+/slide_design/
