@@ -25,6 +25,22 @@ Thumbs.db
 /output training/
 /output bounding box/
 /output without noise/
-/output_dwpose/
 /demo_skeleton_videos/
 /slide_design/
+
+# Claude Code / Superpowers working files
+.superpowers/
+
+# DWPose outputs: only run notebooks, metric tables and figures go to git;
+# raw poses, windows, clips, checkpoints and zips stay on Kaggle / local
+/dwpose_output/**/*.zip
+/dwpose_output/results_raw/
+/dwpose_output/notebook/biomed-dwpose.ipynb
+/dwpose_output/**/01_extracted_poses_raw/dwpose_m/
+/dwpose_output/**/02_processed_scenarios/
+/dwpose_output/**/03_qc/clips/
+/dwpose_output/**/checkpoints/
+/dwpose_output/**/__results___files/
+/dwpose_output/**/_*_job_gpu*.json
+/dwpose_output/**/_dwpose_extract_worker.py
+/dwpose_output/**/_loso_worker.py

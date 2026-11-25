@@ -1,0 +1,38 @@
+{
+  "estimator": "DWPose-m (rtmpose-m ucoco dw, 256x192) + YOLOX-m HumanArt detector",
+  "det_url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip",
+  "pose_url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-ucoco_dw-ucoco_270e-256x192-c8b76419_20230728.zip",
+  "num_keypoints": 133,
+  "layout": "COCO-WholeBody: 0-16 body (COCO-17), 17-22 feet, 23-90 face, 91-132 hands",
+  "coords": "pixel (resolusi asli video), kolom ke-3 = skor keypoint",
+  "lb6_indices": [
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "lb6_names": [
+    "L_Hip",
+    "R_Hip",
+    "L_Knee",
+    "R_Knee",
+    "L_Ankle",
+    "R_Ankle"
+  ],
+  "feet_indices": {
+    "L_BigToe": 17,
+    "L_SmallToe": 18,
+    "L_Heel": 19,
+    "R_BigToe": 20,
+    "R_SmallToe": 21,
+    "R_Heel": 22
+  },
+  "patient_lock": "PatientLock-2Pass (ajikajadeh/mobile-fog-patient-bboxes)",
+  "crop_pad_ratio": 0.15,
+  "mask_supervisors": true,
+  "min_crop_iou": 0.2,
+  "det_conf": 0.2,
+  "boxes": "box pasien dari dataset bbox (piksel); kps nol + valid=False jika tidak ada box/match"
+}
